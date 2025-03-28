@@ -1,0 +1,283 @@
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+public class TransactionPDFGenerator {
+
+    public static void main(String[] args) {
+        try (PDDocument document = new PDDocument()) {
+            // Utwórz nową stronę formatu A4
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
+
+            // Ustawienia czcionek – używamy czcionek wbudowanych PDFBox
+            // Jeśli masz plik czcionki Verdena, możesz go załadować i użyć zamiast poniższych.
+            // PDType0Font fontVerdenaBold = PDType0Font.load(document, new File("verdena-bold.ttf"));
+            // Na potrzeby przykładu użyjemy Helvetica Bold i regular.
+            final PDType1Font fontBold = PDType1Font.HELVETICA_BOLD;
+            final PDType1Font fontRegular = PDType1Font.HELVETICA;
+
+            // Otwórz strumień zawartości strony
+            PDPageContentStream contentStream = new PDPageContentStream(document, page);
+
+            // Pobierz wymiary strony
+            PDRectangle mediaBox = page.getMediaBox();
+            float margin = 50;
+            float yStart = mediaBox.getUpperRightY() - margin;  // punkt startowy od góry
+
+            // 1. Rysowanie logo w prawym górnym rogu
+            // Upewnij się, że plik "logo.png" istnieje w odpowiedniej lokalizacji.
+            PDImageXObject logo = PDImageXObject.createFromFile("logo.png", document);
+            float logoWidth = 100;
+            float logoHeight = 50;
+            // Pozycja: od prawej strony (odliczając margines i szerokość logo)
+            float logoX = mediaBox.getUpperRightX() - margin - logoWidth;
+            float logoY = yStart - logoHeight;
+            contentStream.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+
+            // 2. Tekst "HISTORIA TRANSAKCJI" w tym samym wierszu, wyrównany do lewej
+            contentStream.beginText();
+            contentStream.setFont(fontBold, 18);
+            float textX = margin;
+            // Ustawienie wysokości tekstu – wyrównanie do środka logo (przykładowo)
+            float textY = yStart - 20;
+            contentStream.newLineAtOffset(textX, textY);
+            contentStream.showText("HISTORIA TRANSAKCJI");
+            contentStream.endText();
+
+            // 3. Tekst opisowy pod nagłówkiem
+            contentStream.beginText();
+            contentStream.setFont(fontRegular, 12);
+            float subTextY = textY - 30;
+            contentStream.newLineAtOffset(textX, subTextY);
+            contentStream.showText("elektroniczne zestawienie operacji zaksięgowancyh");
+            contentStream.endText();
+
+            // 4. Rysowanie tabeli z danymi transakcji
+            // Pozycja tabeli – poniżej tekstu opisowego
+            float tableTopY = subTextY - 50;
+            float tableX = margin;
+            // Określona szerokość tabeli (dostępna szerokość strony: szerokość strony - 2*margines)
+            float tableWidth = mediaBox.getWidth() - 2 * margin;
+
+            // Definiujemy kolumny – 5 kolumn, ustawione ręcznie (suma szerokości musi być mniejsza lub równa tableWidth)
+            // Przykładowy układ: 85, 85, 140, 85, 85 (suma = 480)
+            int numColumns = 5;
+            float[] colWidths = {85, 85, 140, 85, 85};
+
+            // Rysowanie nagłówka tabeli
+            String[] headers = {"Data transakcji", "Data księgowania", "Szczegóły transakcji", "Kwota", "Kwota w walucie"};
+            float cellHeight = 20;
+            float currentY = tableTopY;
+            float nextX = tableX;
+
+            contentStream.setFont(fontBold, 10);
+            // Rysujemy ramki i tekst nagłówków
+            for (int i = 0; i < numColumns; i++) {
+                // Rysuj prostokąt komórki (ramkę)
+                contentStream.addRect(nextX, currentY - cellHeight, colWidths[i], cellHeight);
+                contentStream.stroke();
+                // Wstaw tekst do komórki z lekkim marginesem
+                contentStream.beginText();
+                contentStream.newLineAtOffset(nextX + 2, currentY - 15);
+                contentStream.showText(headers[i]);
+                contentStream.endText();
+                nextX += colWidths[i];
+            }
+
+            // Przykładowe dane transakcji
+            List<Transaction> transactions = new ArrayList<>();
+            transactions.add(new Transaction("2025-03-25", "2025-03-26", "Przelew", "100.00", "PLN"));
+            transactions.add(new Transaction("2025-03-24", "2025-03-25", "Wpłata", "200.00", "PLN"));
+            transactions.add(new Transaction("2025-03-23", "2025-03-24", "Wypłata", "50.00", "PLN"));
+            // Dodaj kolejne transakcje według potrzeby
+
+            // Ustaw czcionkę dla danych w tabeli
+            contentStream.setFont(fontRegular, 10);
+            // Przesuń Y poniżej nagłówka tabeli
+            currentY -= cellHeight;
+            // Dla każdej transakcji rysujemy wiersz tabeli
+            for (Transaction tx : transactions) {
+                nextX = tableX;
+                // Dane transakcji w postaci tablicy
+                String[] txData = {
+                    tx.getTransactionDate(),
+                    tx.getPostingDate(),
+                    tx.getDetails(),
+                    tx.getAmount(),
+                    tx.getAccountCurrency()
+                };
+
+                // Rysowanie każdej komórki w wierszu
+                for (int i = 0; i < numColumns; i++) {
+                    // Rysuj ramkę komórki
+                    contentStream.addRect(nextX, currentY - cellHeight, colWidths[i], cellHeight);
+                    contentStream.stroke();
+                    // Wstaw tekst do komórki
+                    contentStream.beginText();
+                    contentStream.newLineAtOffset(nextX + 2, currentY - 15);
+                    contentStream.showText(txData[i]);
+                    contentStream.endText();
+                    nextX += colWidths[i];
+                }
+                currentY -= cellHeight;
+            }
+
+            contentStream.close();
+
+            // Zapisz dokument PDF
+            document.save("transactions.pdf");
+            System.out.println("PDF został wygenerowany.");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Prosta klasa reprezentująca transakcję
+    static class Transaction {
+        private String transactionDate;
+        private String postingDate;
+        private String details;
+        private String amount;
+        private String accountCurrency;
+
+        public Transaction(String transactionDate, String postingDate, String details, String amount, String accountCurrency) {
+            this.transactionDate = transactionDate;
+            this.postingDate = postingDate;
+            this.details = details;
+            this.amount = amount;
+            this.accountCurrency = accountCurrency;
+        }
+
+        public String getTransactionDate() {
+            return transactionDate;
+        }
+
+        public String getPostingDate() {
+            return postingDate;
+        }
+
+        public String getDetails() {
+            return details;
+        }
+
+        public String getAmount() {
+            return amount;
+        }
+
+        public String getAccountCurrency() {
+            return accountCurrency;
+        }
+    }
+}
+
+
+
+
+______________________________________________________________
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+
+import java.io.File;
+import java.io.IOException;
+
+public class PDFTemplateEditor {
+
+    public static void main(String[] args) {
+        try (PDDocument document = PDDocument.load(new File("template.pdf"))) {
+            // Pobieramy pierwszą stronę z szablonu
+            PDPage page = document.getPage(0);
+            // Otwarcie strumienia zawartości w trybie APPEND (aby zachować istniejącą zawartość)
+            PDPageContentStream contentStream = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true);
+            
+            // --- PRZYKŁAD 1: Podmiana tekstu w ustalonym obszarze (np. placeholder) ---
+            // Ustal współrzędne, w których znajduje się placeholder
+            float placeholderX = 100; // przykładowa wartość
+            float placeholderY = 700; // przykładowa wartość
+            float placeholderWidth = 200;
+            float placeholderHeight = 20;
+            
+            // "Zaciemniamy" obszar – rysujemy biały prostokąt, który przykrywa stary tekst
+            contentStream.setNonStrokingColor(1f, 1f, 1f); // biały kolor
+            contentStream.addRect(placeholderX, placeholderY, placeholderWidth, placeholderHeight);
+            contentStream.fill();
+            
+            // Wpisujemy nowy tekst w tym samym obszarze
+            contentStream.beginText();
+            contentStream.setNonStrokingColor(0f, 0f, 0f); // czarny tekst
+            contentStream.setFont(PDType1Font.HELVETICA_BOLD, 12);
+            // Dostosuj pozycję tekstu – dodaj niewielki margines (np. 5 punktów)
+            contentStream.newLineAtOffset(placeholderX, placeholderY + 5);
+            contentStream.showText("Nowa wartość");
+            contentStream.endText();
+            
+            // --- PRZYKŁAD 2: Dodanie nowego wiersza do tabeli ---
+            // Załóżmy, że tabela znajduje się w ustalonym obszarze.
+            // Na przykład: tabela zaczyna się w lewym marginesie na Y = 600.
+            float tableX = 50;
+            float tableY = 600;
+            float rowHeight = 15;
+            
+            // Załóżmy, że dodajemy nowy wiersz na pozycji (np. jako wiersz nr 5).
+            int rowIndex = 5;
+            float newRowY = tableY - rowIndex * rowHeight;
+            
+            // Definiujemy szerokości kolumn – przykładowo 5 kolumn.
+            float[] colWidths = {80, 80, 200, 60, 60};
+            String[] cellTexts = {"2025-03-25", "2025-03-26", "Opis transakcji", "100.00", "PLN"};
+            
+            // Rysujemy ramkę całego wiersza (opcjonalnie)
+            contentStream.setStrokingColor(0, 0, 0); // czarny
+            contentStream.addRect(tableX, newRowY, sum(colWidths), rowHeight);
+            contentStream.stroke();
+            
+            // Wstawiamy tekst do każdej komórki wraz z rysowaniem prostokątów komórek
+            contentStream.setFont(PDType1Font.HELVETICA, 10);
+            float currentX = tableX;
+            for (int i = 0; i < cellTexts.length; i++) {
+                // Rysujemy prostokąt komórki
+                contentStream.addRect(currentX, newRowY, colWidths[i], rowHeight);
+                contentStream.stroke();
+                
+                // Wstawiamy tekst z lekkim marginesem (np. 2 punkty)
+                contentStream.beginText();
+                contentStream.newLineAtOffset(currentX + 2, newRowY + 3);
+                contentStream.showText(cellTexts[i]);
+                contentStream.endText();
+                
+                currentX += colWidths[i];
+            }
+            
+            // Zamykamy strumień zawartości
+            contentStream.close();
+            
+            // Zapisujemy zmodyfikowany dokument PDF
+            document.save("edited_template.pdf");
+            System.out.println("PDF został wygenerowany.");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    // Pomocnicza metoda sumująca wartości z tablicy float
+    private static float sum(float[] arr) {
+        float total = 0;
+        for (float f : arr) {
+            total += f;
+        }
+        return total;
+    }
+}
